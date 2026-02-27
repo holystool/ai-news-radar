@@ -1,58 +1,39 @@
-name: Update AI News Snapshot
+name: Update News and Email
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "*/30 * * * *"
-
-permissions:
-  contents: write
+    # 每天北京时间早上 8:00 运行 (UTC 0:00)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 允许你手动点击按钮测试运行
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Prepare OPML (optional)
-        env:
-          FOLLOW_OPML_B64: ${{ secrets.FOLLOW_OPML_B64 }}
+      - name: Run Scraper
         run: |
-          mkdir -p feeds
-          if [ -n "$FOLLOW_OPML_B64" ]; then
-            echo "$FOLLOW_OPML_B64" | base64 --decode > feeds/follow.opml
-            echo "Loaded feeds/follow.opml from FOLLOW_OPML_B64 secret"
-          else
-            echo "No FOLLOW_OPML_B64 secret provided; RSS OPML is optional"
-          fi
+          python scripts/update_news.py --output-dir data --window-hours 24
 
-      - name: Update data
-        run: |
-          if [ -f feeds/follow.opml ]; then
-            python scripts/update_news.py --output-dir data --window-hours 24 --rss-opml feeds/follow.opml
-          else
-            python scripts/update_news.py --output-dir data --window-hours 24
-          fi
-
-      - name: Commit and push changes
-        run: |
-          if git diff --quiet; then
-            echo "No changes to commit"
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/latest-24h.json data/archive.json data/source-status.json data/waytoagi-7d.json data/title-zh-cache.json
-          git commit -m "chore: update ai news snapshot"
-          git push
+      # 关键步骤：发送邮件
+      - name: Send mail
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com # 修改为 Gmail 的服务器
+          server_port: 465               # Gmail 推荐 465 (SSL)
+          username: ${ holystoolai@hotmail.com } # 你的 Gmail 地址
+          password: ${ ecrets.MAIL_PASSWOR } # 填刚才那串 16 位授权码
+          subject: "📅 今天的 AI 新闻早报已送到！"
+          to: 你的接收邮箱holystool@gmail.com
+          from: AI News Radar
+          attachments: data/*.json
