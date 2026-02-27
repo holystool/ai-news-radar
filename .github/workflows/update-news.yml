@@ -30,11 +30,13 @@ jobs:
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
-          server_port: 465
-          # 下面这两行必须严格遵守这种格式，不要手动填邮箱，GitHub 会自动去刚才的 Secret 库里找
-          username: ${{ secrets.MAIL_USERNAME }} 
-          password: ${{ secrets.MAIL_PASSWORD }} 
+          # 尝试使用 587 端口
+          server_port: 587
+          # 配合 587 端口，通常不需要强制开启 secure (SSL)，它会自动转为 STARTTLS
+          secure: false 
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
           subject: "📅 今天的 AI 新闻早报已送到！"
-          to: 你的接收邮箱@example.com  # 这里直接写死你的收件邮箱没关系
+          to: 你的接收邮箱@example.com
           from: AI News Radar
           attachments: data/*.json
