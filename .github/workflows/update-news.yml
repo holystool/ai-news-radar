@@ -25,6 +25,9 @@ jobs:
         run: |
           pip install -r requirements.txt
 
+      - name: Set System Timezone
+        run: sudo timedatectl set-timezone 'Asia/Shanghai'
+        
       - name: Run Scraper
         # 这里运行原始项目的抓取脚本，并生成网页所需的 data 数据
         run: |
