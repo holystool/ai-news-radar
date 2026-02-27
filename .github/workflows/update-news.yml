@@ -1,42 +1,61 @@
-name: Update News and Email
+name: Update News, Deploy Page and Notify
 
 on:
   schedule:
     # 每天北京时间早上 8:00 运行 (UTC 0:00)
     - cron: '0 0 * * *'
-  workflow_dispatch: # 允许你手动点击按钮测试运行
+  workflow_dispatch: # 允许你手动点击按钮测试
+
+permissions:
+  contents: write # 赋予 Action 权限去更新你的网页分支
 
 jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: |
           pip install -r requirements.txt
 
       - name: Run Scraper
+        # 这里运行原始项目的抓取脚本，并生成网页所需的 data 数据
         run: |
           python scripts/update_news.py --output-dir data --window-hours 24
 
-      # 关键步骤：发送邮件
-      - name: Send mail
+      - name: Deploy to GitHub Pages
+        # 这个步骤会将更新后的数据推送到 gh-pages 分支，激活你的网页
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./ # 部署当前目录下的内容
+          publish_branch: gh-pages
+
+      - name: Send Notification Email
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
-          # 尝试使用 587 端口
           server_port: 587
-          # 配合 587 端口，通常不需要强制开启 secure (SSL)，它会自动转为 STARTTLS
-          secure: false 
+          secure: false
           username: ${{ secrets.MAIL_USERNAME }}
           password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "📅 今天的 AI 新闻早报已送到！"
-          to: 你的接收邮箱@example.com
+          subject: "✨ 您的 AI 灵感早报已更新"
+          # 请将下方地址改为你真实的接收邮箱
+          to: holystool@gmail.com 
           from: AI News Radar
-          attachments: data/*.json
+          body: |
+            早安！
+            
+            今日的 AI 新闻雷达已完成扫描，最新资讯已同步至您的私人空间。
+            
+            您可以点击下方链接，以最舒适的界面进行阅读：
+            https://${{ github.repository_owner }}.github.io/ai-news-radar/
+            
+            愿今日的资讯能为您带来新的启发。
