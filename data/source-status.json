@@ -1,0 +1,105 @@
+{
+  "generated_at": "2026-02-27T14:02:56.670962Z",
+  "sites": [
+    {
+      "site_id": "techurls",
+      "site_name": "TechURLs",
+      "ok": true,
+      "item_count": 405,
+      "duration_ms": 490,
+      "error": null
+    },
+    {
+      "site_id": "buzzing",
+      "site_name": "Buzzing",
+      "ok": true,
+      "item_count": 744,
+      "duration_ms": 277,
+      "error": null
+    },
+    {
+      "site_id": "iris",
+      "site_name": "Info Flow",
+      "ok": true,
+      "item_count": 543,
+      "duration_ms": 13509,
+      "error": null
+    },
+    {
+      "site_id": "bestblogs",
+      "site_name": "BestBlogs",
+      "ok": true,
+      "item_count": 84,
+      "duration_ms": 2037,
+      "error": null
+    },
+    {
+      "site_id": "tophub",
+      "site_name": "TopHub",
+      "ok": true,
+      "item_count": 3031,
+      "duration_ms": 1860,
+      "error": null
+    },
+    {
+      "site_id": "zeli",
+      "site_name": "Zeli",
+      "ok": true,
+      "item_count": 71,
+      "duration_ms": 328,
+      "error": null
+    },
+    {
+      "site_id": "aihubtoday",
+      "site_name": "AI HubToday",
+      "ok": true,
+      "item_count": 46,
+      "duration_ms": 263,
+      "error": null
+    },
+    {
+      "site_id": "aibase",
+      "site_name": "AIbase",
+      "ok": true,
+      "item_count": 20,
+      "duration_ms": 1157,
+      "error": null
+    },
+    {
+      "site_id": "aihot",
+      "site_name": "AI今日热榜",
+      "ok": false,
+      "item_count": 0,
+      "duration_ms": 33,
+      "error": "403 Client Error: Forbidden for url: https://aihot.today/"
+    },
+    {
+      "site_id": "newsnow",
+      "site_name": "NewsNow",
+      "ok": true,
+      "item_count": 1404,
+      "duration_ms": 1541,
+      "error": null
+    }
+  ],
+  "successful_sites": 9,
+  "failed_sites": [
+    "aihot"
+  ],
+  "zero_item_sites": [],
+  "fetched_raw_items": 6348,
+  "items_before_topic_filter": 13954,
+  "items_in_24h": 1552,
+  "rss_opml": {
+    "enabled": false,
+    "path": null,
+    "feed_total": 0,
+    "effective_feed_total": 0,
+    "ok_feeds": 0,
+    "failed_feeds": [],
+    "zero_item_feeds": [],
+    "skipped_feeds": [],
+    "replaced_feeds": [],
+    "feeds": []
+  }
+}
