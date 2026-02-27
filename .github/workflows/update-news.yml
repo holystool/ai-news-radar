@@ -26,13 +26,13 @@ jobs:
           python scripts/update_news.py --output-dir data --window-hours 24
 
       # 关键步骤：发送邮件
-      - name: Send mail
+        - name: Send mail
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com # 修改为 Gmail 的服务器
           server_port: 465               # Gmail 推荐 465 (SSL)
-          username: ${ holystoolai@hotmail.com } # 你的 Gmail 地址
-          password: ${ ecrets.MAIL_PASSWOR } # 填刚才那串 16 位授权码
+          username: ${{ holstoolai@hotmail.com }} # 你的 Gmail 地址
+          password: ${{ thid prnc yvgm oedj }} # 填刚才那串 16 位授权码
           subject: "📅 今天的 AI 新闻早报已送到！"
           to: 你的接收邮箱holystool@gmail.com
           from: AI News Radar
