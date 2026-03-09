@@ -41,7 +41,7 @@ jobs:
           publish_dir: ./ # 部署当前目录下的内容
           publish_branch: gh-pages
           # 增加这一行，强制覆盖旧内容，确保刷新
-          force_push: true
+          force_orphan: true
 
       - name: Send Notification Email
         uses: dawidd6/action-send-mail@v3
