@@ -30,6 +30,6 @@ def extract_summary():
 
 if __name__ == "__main__":
     content = extract_summary()
-    # 将结果写入临时文件
+    # 确保内容末尾有一个换行符，增加兼容性
     with open('waytoagi_summary.txt', 'w', encoding='utf-8') as f:
-        f.write(content)
+        f.write(content + "\n")
