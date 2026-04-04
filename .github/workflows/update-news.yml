@@ -54,12 +54,11 @@ jobs:
       - name: Set Email Body
         id: set_body
         run: |
-          # 读取刚才生成的摘要并存入环境变量
-          {
-            echo 'EMAIL_SUMMARY<<EOF'
-            cat waytoagi_summary.txt
-            echo 'EOF'
-          } >> $GITHUB_ENV
+          # 确保提取出的内容被正确读取，并处理掉可能引起问题的特殊字符
+          echo "EMAIL_SUMMARY<<TEMPEOS" >> $GITHUB_ENV
+          cat waytoagi_summary.txt >> $GITHUB_ENV
+          echo "" >> $GITHUB_ENV # 换行确保结束标记在独立一行
+          echo "TEMPEOS" >> $GITHUB_ENV
 
       # --- 修改发送邮件步骤 ---
       - name: Send Notification Email
