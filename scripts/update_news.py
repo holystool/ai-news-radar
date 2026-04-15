@@ -465,156 +465,146 @@ def extract_waytoagi_recent_updates_from_block_map(
     now_sh: datetime,
     page_url: str,
 ) -> list[dict[str, Any]]:
-    # 1. 基础安全检查，防止输入非字典数据
     if not isinstance(block_map, dict) or not block_map:
         return []
 
-    ym_by_heading2 = {}
-    near_log_parent_ids = set()
-    heading3_dates = {}
-    parent_map = {}
+    ym_by_heading2: dict[str, tuple[int, int]] = {}
+    near_log_parent_ids: set[str] = set()
 
-    # 2. 预处理：建立层级关系并解析日期
     for bid, block in block_map.items():
-        if not isinstance(block, dict): continue
         bd = block.get("data", {})
-        if not isinstance(bd, dict): continue
-        
         btype = bd.get("type")
-        p_id = str(bd.get("parent_id") or "").strip()
-        if p_id:
-            parent_map[bid] = p_id
+        if btype not in {"heading1", "heading2", "heading3"}:
+            continue
+        heading_text = block_text(bd)
+        if "近7日更新日志" in heading_text or "近 7 日更新日志" in heading_text:
+            parent_id = str(bd.get("parent_id") or "").strip()
+            if parent_id:
+                near_log_parent_ids.add(parent_id)
 
-        # 使用最原始的文本提取方式，避开对 block_text 函数的依赖
-        text_obj = bd.get("text", {})
-        initial = text_obj.get("initialAttributedTexts", {}).get("text", {}) if isinstance(text_obj, dict) else {}
-        h_text = "".join(str(v) for k, v in sorted(initial.items())).strip() if isinstance(initial, dict) else ""
+    heading3_dates: dict[str, date] = {}
 
-        if btype in {"heading1", "heading2", "heading3"}:
-            if "近7日更新日志" in h_text or "近 7 日更新日志" in h_text:
-                if p_id: near_log_parent_ids.add(p_id)
-            
-            if btype == "heading2":
-                ym = parse_ym_heading(h_text)
-                if ym: ym_by_heading2[bid] = ym
-            
-            if btype == "heading3":
-                md = parse_md_heading(h_text)
-                if md:
-                    month, day = md
-                    year = ym_by_heading2.get(p_id, (now_sh.year, month))[0]
-                    inferred = infer_shanghai_year_for_month_day(now_sh, month, day)
-                    if inferred is not None: year = inferred
-                    try:
-                        heading3_dates[bid] = date(year, month, day)
-                    except:
-                        continue
-
-    # 3. 提取内容条目与真实 Token 链接
-    updates = []
-    seen = set()
     for bid, block in block_map.items():
-        if not isinstance(block, dict): continue
         bd = block.get("data", {})
-        if not isinstance(bd, dict) or bd.get("type") not in {"bullet", "text", "todo", "ordered"}:
+        if bd.get("type") != "heading2":
+            continue
+        ym = parse_ym_heading(block_text(bd))
+        if ym:
+            ym_by_heading2[bid] = ym
+
+    for bid, block in block_map.items():
+        bd = block.get("data", {})
+        if bd.get("type") != "heading3":
+            continue
+        md = parse_md_heading(block_text(bd))
+        if not md:
+            continue
+        month, day = md
+        parent = bd.get("parent_id")
+        if near_log_parent_ids and parent not in near_log_parent_ids:
+            continue
+        year = ym_by_heading2.get(parent, (now_sh.year, month))[0]
+        inferred = infer_shanghai_year_for_month_day(now_sh, month, day)
+        if inferred is not None:
+            year = inferred
+        try:
+            heading3_dates[bid] = date(year, month, day)
+        except Exception:
             continue
 
-        # 向上寻找日期锚点
-        day = None
-        curr = parent_map.get(bid)
-        for _ in range(15):
-            if not curr: break
-            if curr in heading3_dates:
-                day = heading3_dates[curr]
-                break
-            curr = parent_map.get(curr)
-        
-        if not day: continue
-        
-        # 提取标题
-        text_obj = bd.get("text", {})
-        initial = text_obj.get("initialAttributedTexts", {}).get("text", {}) if isinstance(text_obj, dict) else {}
-        raw_title = "".join(str(v) for k, v in sorted(initial.items())).strip() if isinstance(initial, dict) else ""
-        title = clean_update_title(raw_title)
-        if not title: continue
+    parent_map: dict[str, str] = {}
+    for bid, block in block_map.items():
+        bd = block.get("data", {})
+        parent = str(bd.get("parent_id") or "").strip()
+        if parent:
+            parent_map[bid] = parent
 
-        # --- 真实链接提取：使用正则表达式直接从原始数据中检索 Token ---
-        real_url = page_url
-        try:
-            # 将当前数据块转化为字符串，搜索符合飞书 Wiki Token 特征的字符
-            block_content_str = str(block)
-            token_pattern = r"'token':\s*'([a-zA-Z0-9]{20,})'"
-            match = re.search(token_pattern, block_content_str)
-            if match:
-                real_url = f"https://waytoagi.feishu.cn/wiki/{match.group(1)}"
-            else:
-                # 备用：搜索标准的 link 字段
-                link_pattern = r"'link':\s*'([^']+)'"
-                link_match = re.search(link_pattern, block_content_str)
-                if link_match:
-                    real_url = link_match.group(1).replace('\\/', '/')
-        except:
-            pass
+    def nearest_heading_date(block_id: str) -> date | None:
+        cur = parent_map.get(block_id)
+        hops = 0
+        while cur and hops < 20:
+            if cur in heading3_dates:
+                return heading3_dates[cur]
+            cur = parent_map.get(cur)
+            hops += 1
+        return None
 
+    updates: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for bid, block in block_map.items():
+        bd = block.get("data", {})
+        if bd.get("type") not in {"bullet", "text", "todo", "ordered"}:
+            continue
+
+        day = nearest_heading_date(bid)
+        if not day:
+            continue
+        title = clean_update_title(block_text(bd))
+        if not title:
+            continue
         key = (day.isoformat(), title)
-        if key not in seen:
-            seen.add(key)
-            updates.append({"date": day.isoformat(), "title": title, "url": real_url})
+        if key in seen:
+            continue
+        seen.add(key)
+        updates.append({"date": day.isoformat(), "title": title, "url": page_url})
 
     return updates
+
 
 def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
     now_sh = now_utc.astimezone(SH_TZ)
     root_html = session.get(root_url, timeout=30).text
-    
-    # 1. 提取所有可能的“标题-Token”对
-    # 飞书 HTML 中通常包含这种映射关系，我们直接用正则全量抓取
-    token_map = {}
-    # 匹配模式：标题后面跟着对应的 token
-    pattern = r'\\"title\\":\\"(.*?)\\",.*?\\"token\\":\\"(.*?)\\"'
-    matches = re.findall(pattern, root_html)
-    for t_text, t_token in matches:
-        if len(t_token) > 20: # 确保是真实的 Token
-            token_map[t_text.strip()] = t_token
-
     history_url = extract_waytoagi_history_url(root_html)
+
     root_client_vars = extract_feishu_client_vars(root_html)
     root_block_map = root_client_vars.get("data", {}).get("block_map", {})
-    
-    # 调用原有的解析逻辑获取初步的 updates
-    updates = extract_waytoagi_recent_updates_from_block_map(root_block_map, now_sh, root_url)
+    updates: list[dict[str, Any]] = extract_waytoagi_recent_updates_from_block_map(root_block_map, now_sh, root_url)
 
-    # 2. 关键补丁：利用刚才抓取的全局 token_map 修正链接
-    for item in updates:
-        title = item.get('title', '')
-        # 如果在全局 map 里找到了这个标题对应的 token，直接替换 URL
-        if title in token_map:
-            item['url'] = f"https://waytoagi.feishu.cn/wiki/{token_map[title]}"
-        else:
-            # 模糊匹配：如果标题很长，尝试部分匹配
-            for k, v in token_map.items():
-                if k in title or title in k:
-                    item['url'] = f"https://waytoagi.feishu.cn/wiki/{v}"
-                    break
+    if history_url and history_url != root_url:
+        try:
+            history_html = session.get(history_url, timeout=30).text
+            history_client_vars = extract_feishu_client_vars(history_html)
+            history_block_map = history_client_vars.get("data", {}).get("block_map", {})
+            updates.extend(
+                extract_waytoagi_recent_updates_from_block_map(history_block_map, now_sh, history_url)
+            )
+        except Exception:
+            pass
 
-    # 后续的去重和过滤逻辑保持不变...
-    dedup_updates = {}
+    dedup_updates: dict[tuple[str, str], dict[str, Any]] = {}
     for item in updates:
         key = (str(item.get("date") or ""), str(item.get("title") or ""))
         if key[0] and key[1] and key not in dedup_updates:
             dedup_updates[key] = item
 
     start_date = now_sh.date() - timedelta(days=6)
-    recent = [u for u in dedup_updates.values() if start_date <= date.fromisoformat(str(u.get("date") or "1970-01-01")) <= now_sh.date()]
+    end_date = now_sh.date()
+    recent = [
+        u
+        for u in dedup_updates.values()
+        if start_date <= date.fromisoformat(str(u.get("date") or "1970-01-01")) <= end_date
+    ]
     recent.sort(key=lambda x: (x["date"], x["title"]), reverse=True)
-    
+    latest_date = recent[0]["date"] if recent else None
+    updates_today = [u for u in recent if u.get("date") == latest_date] if latest_date else []
+
+    warning = "近7日未解析到更新条目" if not recent else None
     return {
         "generated_at": iso(now_utc),
-        "updates_today": [u for u in recent if u.get("date") == recent[0]["date"]] if recent else [],
-        "updates_7d": recent,
+        "timezone": "Asia/Shanghai",
         "root_url": root_url,
-        # ... 其他元数据 ...
+        "history_url": history_url,
+        "window_days": 7,
+        "latest_date": latest_date,
+        "count_today": len(updates_today),
+        "updates_today": updates_today,
+        "count_7d": len(recent),
+        "updates_7d": recent,
+        "warning": warning,
+        "has_error": False,
+        "error": None,
     }
+
 
 def create_session() -> requests.Session:
     session = requests.Session()
