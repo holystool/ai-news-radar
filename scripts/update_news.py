@@ -512,6 +512,7 @@ def extract_waytoagi_recent_updates_from_block_map(
         except Exception:
             continue
 
+    # --- 以下是新增的逻辑：建立父子关系并提取带链接的条目 ---
     parent_map: dict[str, str] = {}
     for bid, block in block_map.items():
         bd = block.get("data", {})
@@ -539,17 +540,35 @@ def extract_waytoagi_recent_updates_from_block_map(
         day = nearest_heading_date(bid)
         if not day:
             continue
+        
+        # 提取标题文本
         title = clean_update_title(block_text(bd))
         if not title:
             continue
+
+        # --- 核心改进：深度扫描飞书文档的 Token 链接 ---
+        real_url = page_url
+        text_obj = bd.get("text", {})
+        if isinstance(text_obj, dict):
+            attribs = text_obj.get("initialAttributedTexts", {}).get("attribs", {})
+            if isinstance(attribs, dict):
+                for attr_id, attr_val in attribs.items():
+                    # 尝试获取子文档 token
+                    token = attr_val.get("mention_doc", {}).get("token")
+                    if token:
+                        real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
+                        break
+                    elif "link" in attr_val:
+                        real_url = attr_val["link"]
+                        break
+
         key = (day.isoformat(), title)
         if key in seen:
             continue
         seen.add(key)
-        updates.append({"date": day.isoformat(), "title": title, "url": page_url})
+        updates.append({"date": day.isoformat(), "title": title, "url": real_url})
 
     return updates
-
 
 def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
     now_sh = now_utc.astimezone(SH_TZ)
