@@ -471,6 +471,7 @@ def extract_waytoagi_recent_updates_from_block_map(
     ym_by_heading2: dict[str, tuple[int, int]] = {}
     near_log_parent_ids: set[str] = set()
 
+    # 1. 扫描标题层级和父级 ID
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
         bd = block.get("data", {})
@@ -486,6 +487,7 @@ def extract_waytoagi_recent_updates_from_block_map(
 
     heading3_dates: dict[str, date] = {}
 
+    # 2. 提取年月信息
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
         bd = block.get("data", {})
@@ -495,6 +497,7 @@ def extract_waytoagi_recent_updates_from_block_map(
         if ym:
             ym_by_heading2[bid] = ym
 
+    # 3. 提取月日信息并计算日期
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
         bd = block.get("data", {})
@@ -516,6 +519,7 @@ def extract_waytoagi_recent_updates_from_block_map(
         except Exception:
             continue
 
+    # 4. 建立父子映射
     parent_map: dict[str, str] = {}
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
@@ -535,6 +539,7 @@ def extract_waytoagi_recent_updates_from_block_map(
             hops += 1
         return None
 
+    # 5. 核心：暴力提取内容和真实链接
     updates: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for bid, block in block_map.items():
@@ -553,21 +558,23 @@ def extract_waytoagi_recent_updates_from_block_map(
 
         real_url = page_url
         
-        # --- 暴力扫描模式：直接在 Block 的 JSON 字符串中“挖”出 ID ---
-        # 飞书的 ID (Token) 就在这串数据里，我们直接用正则把它抓出来
-        block_str = json.dumps(block)
-        
-        # 1. 优先寻找文档 Token (形如 "token":"D0x2w...")
-        token_match = re.search(r'\"token\":\"([a-zA-Z0-9]{20,})\"', block_str)
-        if token_match:
-            token = token_match.group(1)
-            real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
-        else:
-            # 2. 备选方案：寻找直接的链接 (形如 "link":"https://...")
-            link_match = re.search(r'\"link\":\"(https?://[^\"]+)\"', block_str)
-            if link_match:
-                # 处理转义斜杠 \/ 为 /
-                real_url = link_match.group(1).replace('\\/', '/')
+        # --- 暴力匹配模式：直接从 Block JSON 中寻找 Token ---
+        try:
+            # 利用源码中已导入的 json 和 re 模块
+            block_str = json.dumps(block, ensure_ascii=False)
+            
+            # 优先匹配飞书文档内部 Token
+            token_match = re.search(r'\"token\":\"([a-zA-Z0-9]{20,})\"', block_str)
+            if token_match:
+                token = token_match.group(1)
+                real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
+            else:
+                # 备选：匹配常规超链接
+                link_match = re.search(r'\"link\":\"(https?://[^\"]+)\"', block_str)
+                if link_match:
+                    real_url = link_match.group(1).replace('\\/', '/')
+        except Exception:
+            pass
 
         key = (day.isoformat(), title)
         if key in seen:
