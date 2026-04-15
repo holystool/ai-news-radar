@@ -1,5 +1,6 @@
 import json
 import os
+import urllib.parse
 
 def extract_summary():
     file_path = 'data/waytoagi-7d.json'
@@ -11,22 +12,23 @@ def extract_summary():
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        # 核心修正：直接定位到 updates_today 列表
+        # 定位今日更新列表
         updates = data.get('updates_today', [])
         
         if not updates:
             return "今日 WaytoAGI 暂无文章更新。"
 
-        summary = "📢 **WaytoAGI 今日更新摘要：**\n\n"
+        summary = "📢 WaytoAGI 今日更新摘要：\n\n"
         
-        # 遍历更新列表
-for item in updates:
+        for item in updates:
             title = item.get('title', '无标题')
-            # 既然真实链接抓不到，我们直接生成一个搜索链接
-            # 搜索范围限制在 waytoagi 的飞书站点内
-            search_url = f"https://www.google.com/search?q=site:waytoagi.feishu.cn+{title.replace(' ', '+')}"
             
-            summary += f"🔹 **{title}**\n🔗 [搜索并直达文章]({search_url})\n\n"
+            # 使用 urllib.parse 确保标题中的特殊字符被正确编码，避免链接失效
+            encoded_title = urllib.parse.quote(title)
+            # 既然直接抓取真实链接不稳，我们采用搜索直达方案
+            search_url = f"https://www.google.com/search?q=site:waytoagi.feishu.cn+{encoded_title}"
+            
+            summary += f"🔹 {title}\n🔗 [点击搜索并直达文章]({search_url})\n\n"
     
         return summary
     except Exception as e:
@@ -34,5 +36,6 @@ for item in updates:
 
 if __name__ == "__main__":
     content = extract_summary()
+    # 确保输出目录存在（如果需要）
     with open('waytoagi_summary.txt', 'w', encoding='utf-8') as f:
         f.write(content + "\n")
