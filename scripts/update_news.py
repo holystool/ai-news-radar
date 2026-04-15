@@ -465,7 +465,7 @@ def extract_waytoagi_recent_updates_from_block_map(
     now_sh: datetime,
     page_url: str,
 ) -> list[dict[str, Any]]:
-    # 基础安全检查
+    # 1. 基础安全检查，防止输入非字典数据
     if not isinstance(block_map, dict) or not block_map:
         return []
 
@@ -474,7 +474,7 @@ def extract_waytoagi_recent_updates_from_block_map(
     heading3_dates = {}
     parent_map = {}
 
-    # 1. 预处理所有块：建立父子关系并提取标题日期
+    # 2. 预处理：建立层级关系并解析日期
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
         bd = block.get("data", {})
@@ -485,9 +485,12 @@ def extract_waytoagi_recent_updates_from_block_map(
         if p_id:
             parent_map[bid] = p_id
 
-        # 提取 heading 信息
+        # 使用最原始的文本提取方式，避开对 block_text 函数的依赖
+        text_obj = bd.get("text", {})
+        initial = text_obj.get("initialAttributedTexts", {}).get("text", {}) if isinstance(text_obj, dict) else {}
+        h_text = "".join(str(v) for k, v in sorted(initial.items())).strip() if isinstance(initial, dict) else ""
+
         if btype in {"heading1", "heading2", "heading3"}:
-            h_text = block_text(bd)
             if "近7日更新日志" in h_text or "近 7 日更新日志" in h_text:
                 if p_id: near_log_parent_ids.add(p_id)
             
@@ -499,7 +502,6 @@ def extract_waytoagi_recent_updates_from_block_map(
                 md = parse_md_heading(h_text)
                 if md:
                     month, day = md
-                    # 尝试推算年份
                     year = ym_by_heading2.get(p_id, (now_sh.year, month))[0]
                     inferred = infer_shanghai_year_for_month_day(now_sh, month, day)
                     if inferred is not None: year = inferred
@@ -508,7 +510,7 @@ def extract_waytoagi_recent_updates_from_block_map(
                     except:
                         continue
 
-    # 2. 提取内容条目
+    # 3. 提取内容条目与真实 Token 链接
     updates = []
     seen = set()
     for bid, block in block_map.items():
@@ -517,10 +519,10 @@ def extract_waytoagi_recent_updates_from_block_map(
         if not isinstance(bd, dict) or bd.get("type") not in {"bullet", "text", "todo", "ordered"}:
             continue
 
-        # 向上寻找日期（手动展开逻辑，不使用内部函数，避免作用域报错）
+        # 向上寻找日期锚点
         day = None
         curr = parent_map.get(bid)
-        for _ in range(15): # 最多向上找 15 层
+        for _ in range(15):
             if not curr: break
             if curr in heading3_dates:
                 day = heading3_dates[curr]
@@ -529,22 +531,28 @@ def extract_waytoagi_recent_updates_from_block_map(
         
         if not day: continue
         
-        title = clean_update_title(block_text(bd))
+        # 提取标题
+        text_obj = bd.get("text", {})
+        initial = text_obj.get("initialAttributedTexts", {}).get("text", {}) if isinstance(text_obj, dict) else {}
+        raw_title = "".join(str(v) for k, v in sorted(initial.items())).strip() if isinstance(initial, dict) else ""
+        title = clean_update_title(raw_title)
         if not title: continue
 
-        # --- 真实链接抓取：使用最原始的字符串查找，避开复杂的 JSON 解析 ---
+        # --- 真实链接提取：使用正则表达式直接从原始数据中检索 Token ---
         real_url = page_url
         try:
-            # 这里的 block 已经是 dict 了，转成字符串搜 token
-            b_raw = str(block)
-            # 飞书 Token 特征：wiki/ 后面跟一长串字符
-            token_search = re.search(r"'token':\s*'([a-zA-Z0-9]{20,})'", b_raw)
-            if token_search:
-                real_url = f"https://waytoagi.feishu.cn/wiki/{token_search.group(1)}"
+            # 将当前数据块转化为字符串，搜索符合飞书 Wiki Token 特征的字符
+            block_content_str = str(block)
+            token_pattern = r"'token':\s*'([a-zA-Z0-9]{20,})'"
+            match = re.search(token_pattern, block_content_str)
+            if match:
+                real_url = f"https://waytoagi.feishu.cn/wiki/{match.group(1)}"
             else:
-                link_search = re.search(r"'link':\s*'([^']+)'", b_raw)
-                if link_search:
-                    real_url = link_search.group(1).replace('\\/', '/')
+                # 备用：搜索标准的 link 字段
+                link_pattern = r"'link':\s*'([^']+)'"
+                link_match = re.search(link_pattern, block_content_str)
+                if link_match:
+                    real_url = link_match.group(1).replace('\\/', '/')
         except:
             pass
 
@@ -554,8 +562,8 @@ def extract_waytoagi_recent_updates_from_block_map(
             updates.append({"date": day.isoformat(), "title": title, "url": real_url})
 
     return updates
-    
-    def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
+
+def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
     now_sh = now_utc.astimezone(SH_TZ)
     root_html = session.get(root_url, timeout=30).text
     history_url = extract_waytoagi_history_url(root_html)
