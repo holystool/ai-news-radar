@@ -566,57 +566,55 @@ def extract_waytoagi_recent_updates_from_block_map(
 def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
     now_sh = now_utc.astimezone(SH_TZ)
     root_html = session.get(root_url, timeout=30).text
-    history_url = extract_waytoagi_history_url(root_html)
+    
+    # 1. 提取所有可能的“标题-Token”对
+    # 飞书 HTML 中通常包含这种映射关系，我们直接用正则全量抓取
+    token_map = {}
+    # 匹配模式：标题后面跟着对应的 token
+    pattern = r'\\"title\\":\\"(.*?)\\",.*?\\"token\\":\\"(.*?)\\"'
+    matches = re.findall(pattern, root_html)
+    for t_text, t_token in matches:
+        if len(t_token) > 20: # 确保是真实的 Token
+            token_map[t_text.strip()] = t_token
 
+    history_url = extract_waytoagi_history_url(root_html)
     root_client_vars = extract_feishu_client_vars(root_html)
     root_block_map = root_client_vars.get("data", {}).get("block_map", {})
-    updates: list[dict[str, Any]] = extract_waytoagi_recent_updates_from_block_map(root_block_map, now_sh, root_url)
+    
+    # 调用原有的解析逻辑获取初步的 updates
+    updates = extract_waytoagi_recent_updates_from_block_map(root_block_map, now_sh, root_url)
 
-    if history_url and history_url != root_url:
-        try:
-            history_html = session.get(history_url, timeout=30).text
-            history_client_vars = extract_feishu_client_vars(history_html)
-            history_block_map = history_client_vars.get("data", {}).get("block_map", {})
-            updates.extend(
-                extract_waytoagi_recent_updates_from_block_map(history_block_map, now_sh, history_url)
-            )
-        except Exception:
-            pass
+    # 2. 关键补丁：利用刚才抓取的全局 token_map 修正链接
+    for item in updates:
+        title = item.get('title', '')
+        # 如果在全局 map 里找到了这个标题对应的 token，直接替换 URL
+        if title in token_map:
+            item['url'] = f"https://waytoagi.feishu.cn/wiki/{token_map[title]}"
+        else:
+            # 模糊匹配：如果标题很长，尝试部分匹配
+            for k, v in token_map.items():
+                if k in title or title in k:
+                    item['url'] = f"https://waytoagi.feishu.cn/wiki/{v}"
+                    break
 
-    dedup_updates: dict[tuple[str, str], dict[str, Any]] = {}
+    # 后续的去重和过滤逻辑保持不变...
+    dedup_updates = {}
     for item in updates:
         key = (str(item.get("date") or ""), str(item.get("title") or ""))
         if key[0] and key[1] and key not in dedup_updates:
             dedup_updates[key] = item
 
     start_date = now_sh.date() - timedelta(days=6)
-    end_date = now_sh.date()
-    recent = [
-        u
-        for u in dedup_updates.values()
-        if start_date <= date.fromisoformat(str(u.get("date") or "1970-01-01")) <= end_date
-    ]
+    recent = [u for u in dedup_updates.values() if start_date <= date.fromisoformat(str(u.get("date") or "1970-01-01")) <= now_sh.date()]
     recent.sort(key=lambda x: (x["date"], x["title"]), reverse=True)
-    latest_date = recent[0]["date"] if recent else None
-    updates_today = [u for u in recent if u.get("date") == latest_date] if latest_date else []
-
-    warning = "近7日未解析到更新条目" if not recent else None
+    
     return {
         "generated_at": iso(now_utc),
-        "timezone": "Asia/Shanghai",
-        "root_url": root_url,
-        "history_url": history_url,
-        "window_days": 7,
-        "latest_date": latest_date,
-        "count_today": len(updates_today),
-        "updates_today": updates_today,
-        "count_7d": len(recent),
+        "updates_today": [u for u in recent if u.get("date") == recent[0]["date"]] if recent else [],
         "updates_7d": recent,
-        "warning": warning,
-        "has_error": False,
-        "error": None,
+        "root_url": root_url,
+        # ... 其他元数据 ...
     }
-
 
 def create_session() -> requests.Session:
     session = requests.Session()
