@@ -472,9 +472,9 @@ def extract_waytoagi_recent_updates_from_block_map(
     near_log_parent_ids: set[str] = set()
 
     for bid, block in block_map.items():
-        if not isinstance(block, dict): continue # 安全检查
+        if not isinstance(block, dict): continue
         bd = block.get("data", {})
-        if not isinstance(bd, dict): continue # 安全检查
+        if not isinstance(bd, dict): continue
         btype = bd.get("type")
         if btype not in {"heading1", "heading2", "heading3"}:
             continue
@@ -551,25 +551,23 @@ def extract_waytoagi_recent_updates_from_block_map(
         if not title:
             continue
 
-        # --- 深度防御版：抓取真实链接 ---
         real_url = page_url
-        text_obj = bd.get("text", {})
-        # 确保 text_obj 是字典才进行后续操作，防止 'str' object 报错
-        if isinstance(text_obj, dict):
-            initial_text_data = text_obj.get("initialAttributedTexts", {})
-            if isinstance(initial_text_data, dict):
-                attribs = initial_text_data.get("attribs", {})
-                if isinstance(attribs, dict):
-                    for attr_id, attr_val in attribs.items():
-                        if not isinstance(attr_val, dict): continue
-                        # 抓取飞书内部 Token
-                        token = attr_val.get("mention_doc", {}).get("token")
-                        if token:
-                            real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
-                            break
-                        elif "link" in attr_val:
-                            real_url = attr_val["link"]
-                            break
+        
+        # --- 暴力扫描模式：直接在 Block 的 JSON 字符串中“挖”出 ID ---
+        # 飞书的 ID (Token) 就在这串数据里，我们直接用正则把它抓出来
+        block_str = json.dumps(block)
+        
+        # 1. 优先寻找文档 Token (形如 "token":"D0x2w...")
+        token_match = re.search(r'\"token\":\"([a-zA-Z0-9]{20,})\"', block_str)
+        if token_match:
+            token = token_match.group(1)
+            real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
+        else:
+            # 2. 备选方案：寻找直接的链接 (形如 "link":"https://...")
+            link_match = re.search(r'\"link\":\"(https?://[^\"]+)\"', block_str)
+            if link_match:
+                # 处理转义斜杠 \/ 为 /
+                real_url = link_match.group(1).replace('\\/', '/')
 
         key = (day.isoformat(), title)
         if key in seen:
@@ -578,7 +576,8 @@ def extract_waytoagi_recent_updates_from_block_map(
         updates.append({"date": day.isoformat(), "title": title, "url": real_url})
 
     return updates
-def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
+    
+    def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
     now_sh = now_utc.astimezone(SH_TZ)
     root_html = session.get(root_url, timeout=30).text
     history_url = extract_waytoagi_history_url(root_html)
