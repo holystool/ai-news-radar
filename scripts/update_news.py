@@ -472,7 +472,9 @@ def extract_waytoagi_recent_updates_from_block_map(
     near_log_parent_ids: set[str] = set()
 
     for bid, block in block_map.items():
+        if not isinstance(block, dict): continue # 安全检查
         bd = block.get("data", {})
+        if not isinstance(bd, dict): continue # 安全检查
         btype = bd.get("type")
         if btype not in {"heading1", "heading2", "heading3"}:
             continue
@@ -485,16 +487,18 @@ def extract_waytoagi_recent_updates_from_block_map(
     heading3_dates: dict[str, date] = {}
 
     for bid, block in block_map.items():
+        if not isinstance(block, dict): continue
         bd = block.get("data", {})
-        if bd.get("type") != "heading2":
+        if not isinstance(bd, dict) or bd.get("type") != "heading2":
             continue
         ym = parse_ym_heading(block_text(bd))
         if ym:
             ym_by_heading2[bid] = ym
 
     for bid, block in block_map.items():
+        if not isinstance(block, dict): continue
         bd = block.get("data", {})
-        if bd.get("type") != "heading3":
+        if not isinstance(bd, dict) or bd.get("type") != "heading3":
             continue
         md = parse_md_heading(block_text(bd))
         if not md:
@@ -512,10 +516,11 @@ def extract_waytoagi_recent_updates_from_block_map(
         except Exception:
             continue
 
-    # --- 以下是新增的逻辑：建立父子关系并提取带链接的条目 ---
     parent_map: dict[str, str] = {}
     for bid, block in block_map.items():
+        if not isinstance(block, dict): continue
         bd = block.get("data", {})
+        if not isinstance(bd, dict): continue
         parent = str(bd.get("parent_id") or "").strip()
         if parent:
             parent_map[bid] = parent
@@ -533,34 +538,38 @@ def extract_waytoagi_recent_updates_from_block_map(
     updates: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
     for bid, block in block_map.items():
+        if not isinstance(block, dict): continue
         bd = block.get("data", {})
-        if bd.get("type") not in {"bullet", "text", "todo", "ordered"}:
+        if not isinstance(bd, dict) or bd.get("type") not in {"bullet", "text", "todo", "ordered"}:
             continue
 
         day = nearest_heading_date(bid)
         if not day:
             continue
         
-        # 提取标题文本
         title = clean_update_title(block_text(bd))
         if not title:
             continue
 
-        # --- 核心改进：深度扫描飞书文档的 Token 链接 ---
+        # --- 深度防御版：抓取真实链接 ---
         real_url = page_url
         text_obj = bd.get("text", {})
+        # 确保 text_obj 是字典才进行后续操作，防止 'str' object 报错
         if isinstance(text_obj, dict):
-            attribs = text_obj.get("initialAttributedTexts", {}).get("attribs", {})
-            if isinstance(attribs, dict):
-                for attr_id, attr_val in attribs.items():
-                    # 尝试获取子文档 token
-                    token = attr_val.get("mention_doc", {}).get("token")
-                    if token:
-                        real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
-                        break
-                    elif "link" in attr_val:
-                        real_url = attr_val["link"]
-                        break
+            initial_text_data = text_obj.get("initialAttributedTexts", {})
+            if isinstance(initial_text_data, dict):
+                attribs = initial_text_data.get("attribs", {})
+                if isinstance(attribs, dict):
+                    for attr_id, attr_val in attribs.items():
+                        if not isinstance(attr_val, dict): continue
+                        # 抓取飞书内部 Token
+                        token = attr_val.get("mention_doc", {}).get("token")
+                        if token:
+                            real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
+                            break
+                        elif "link" in attr_val:
+                            real_url = attr_val["link"]
+                            break
 
         key = (day.isoformat(), title)
         if key in seen:
@@ -569,7 +578,6 @@ def extract_waytoagi_recent_updates_from_block_map(
         updates.append({"date": day.isoformat(), "title": title, "url": real_url})
 
     return updates
-
 def fetch_waytoagi_recent_7d(session: requests.Session, now_utc: datetime, root_url: str) -> dict[str, Any]:
     now_sh = now_utc.astimezone(SH_TZ)
     root_html = session.get(root_url, timeout=30).text
