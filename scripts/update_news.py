@@ -465,122 +465,93 @@ def extract_waytoagi_recent_updates_from_block_map(
     now_sh: datetime,
     page_url: str,
 ) -> list[dict[str, Any]]:
+    # 基础安全检查
     if not isinstance(block_map, dict) or not block_map:
         return []
 
-    ym_by_heading2: dict[str, tuple[int, int]] = {}
-    near_log_parent_ids: set[str] = set()
+    ym_by_heading2 = {}
+    near_log_parent_ids = set()
+    heading3_dates = {}
+    parent_map = {}
 
-    # 1. 扫描标题层级和父级 ID
+    # 1. 预处理所有块：建立父子关系并提取标题日期
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
         bd = block.get("data", {})
         if not isinstance(bd, dict): continue
+        
         btype = bd.get("type")
-        if btype not in {"heading1", "heading2", "heading3"}:
-            continue
-        heading_text = block_text(bd)
-        if "近7日更新日志" in heading_text or "近 7 日更新日志" in heading_text:
-            parent_id = str(bd.get("parent_id") or "").strip()
-            if parent_id:
-                near_log_parent_ids.add(parent_id)
+        p_id = str(bd.get("parent_id") or "").strip()
+        if p_id:
+            parent_map[bid] = p_id
 
-    heading3_dates: dict[str, date] = {}
+        # 提取 heading 信息
+        if btype in {"heading1", "heading2", "heading3"}:
+            h_text = block_text(bd)
+            if "近7日更新日志" in h_text or "近 7 日更新日志" in h_text:
+                if p_id: near_log_parent_ids.add(p_id)
+            
+            if btype == "heading2":
+                ym = parse_ym_heading(h_text)
+                if ym: ym_by_heading2[bid] = ym
+            
+            if btype == "heading3":
+                md = parse_md_heading(h_text)
+                if md:
+                    month, day = md
+                    # 尝试推算年份
+                    year = ym_by_heading2.get(p_id, (now_sh.year, month))[0]
+                    inferred = infer_shanghai_year_for_month_day(now_sh, month, day)
+                    if inferred is not None: year = inferred
+                    try:
+                        heading3_dates[bid] = date(year, month, day)
+                    except:
+                        continue
 
-    # 2. 提取年月信息
-    for bid, block in block_map.items():
-        if not isinstance(block, dict): continue
-        bd = block.get("data", {})
-        if not isinstance(bd, dict) or bd.get("type") != "heading2":
-            continue
-        ym = parse_ym_heading(block_text(bd))
-        if ym:
-            ym_by_heading2[bid] = ym
-
-    # 3. 提取月日信息并计算日期
-    for bid, block in block_map.items():
-        if not isinstance(block, dict): continue
-        bd = block.get("data", {})
-        if not isinstance(bd, dict) or bd.get("type") != "heading3":
-            continue
-        md = parse_md_heading(block_text(bd))
-        if not md:
-            continue
-        month, day = md
-        parent = bd.get("parent_id")
-        if near_log_parent_ids and parent not in near_log_parent_ids:
-            continue
-        year = ym_by_heading2.get(parent, (now_sh.year, month))[0]
-        inferred = infer_shanghai_year_for_month_day(now_sh, month, day)
-        if inferred is not None:
-            year = inferred
-        try:
-            heading3_dates[bid] = date(year, month, day)
-        except Exception:
-            continue
-
-    # 4. 建立父子映射
-    parent_map: dict[str, str] = {}
-    for bid, block in block_map.items():
-        if not isinstance(block, dict): continue
-        bd = block.get("data", {})
-        if not isinstance(bd, dict): continue
-        parent = str(bd.get("parent_id") or "").strip()
-        if parent:
-            parent_map[bid] = parent
-
-    def nearest_heading_date(block_id: str) -> date | None:
-        cur = parent_map.get(block_id)
-        hops = 0
-        while cur and hops < 20:
-            if cur in heading3_dates:
-                return heading3_dates[cur]
-            cur = parent_map.get(cur)
-            hops += 1
-        return None
-
-    # 5. 核心：暴力提取内容和真实链接
-    updates: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
+    # 2. 提取内容条目
+    updates = []
+    seen = set()
     for bid, block in block_map.items():
         if not isinstance(block, dict): continue
         bd = block.get("data", {})
         if not isinstance(bd, dict) or bd.get("type") not in {"bullet", "text", "todo", "ordered"}:
             continue
 
-        day = nearest_heading_date(bid)
-        if not day:
-            continue
+        # 向上寻找日期（手动展开逻辑，不使用内部函数，避免作用域报错）
+        day = None
+        curr = parent_map.get(bid)
+        for _ in range(15): # 最多向上找 15 层
+            if not curr: break
+            if curr in heading3_dates:
+                day = heading3_dates[curr]
+                break
+            curr = parent_map.get(curr)
+        
+        if not day: continue
         
         title = clean_update_title(block_text(bd))
-        if not title:
-            continue
+        if not title: continue
 
+        # --- 真实链接抓取：使用最原始的字符串查找，避开复杂的 JSON 解析 ---
         real_url = page_url
-        
-        # --- 暴力匹配模式：直接从 Block JSON 中寻找 Token ---
         try:
-            # 利用源码中已导入的 json 和 re 模块
-            block_str = json.dumps(block, ensure_ascii=False)
-            
-            # 优先匹配飞书文档内部 Token
-            token_match = re.search(r'\"token\":\"([a-zA-Z0-9]{20,})\"', block_str)
-            if token_match:
-                token = token_match.group(1)
-                real_url = f"https://waytoagi.feishu.cn/wiki/{token}"
+            # 这里的 block 已经是 dict 了，转成字符串搜 token
+            b_raw = str(block)
+            # 飞书 Token 特征：wiki/ 后面跟一长串字符
+            token_search = re.search(r"'token':\s*'([a-zA-Z0-9]{20,})'", b_raw)
+            if token_search:
+                real_url = f"https://waytoagi.feishu.cn/wiki/{token_search.group(1)}"
             else:
-                # 备选：匹配常规超链接
-                link_match = re.search(r'\"link\":\"(https?://[^\"]+)\"', block_str)
-                if link_match:
-                    real_url = link_match.group(1).replace('\\/', '/')
-        except Exception:
+                link_search = re.search(r"'link':\s*'([^']+)'", b_raw)
+                if link_search:
+                    real_url = link_search.group(1).replace('\\/', '/')
+        except:
             pass
 
         key = (day.isoformat(), title)
-        if key in seen:
-            continue
-        seen.add(key)
-        updates.append({"date": day.isoformat(), "title": title, "url": real_url})
+        if key not in seen:
+            seen.add(key)
+            updates.append({"date": day.isoformat(), "title": title, "url": real_url})
 
     return updates
     
