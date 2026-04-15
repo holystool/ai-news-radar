@@ -20,14 +20,15 @@ def extract_summary():
         summary = "📢 **WaytoAGI 今日更新摘要：**\n\n"
         
         # 遍历更新列表
-for item in updates:
-            title = item.get('title', '无标题')
-            # 既然真实链接抓不到，我们直接生成一个搜索链接
-            # 搜索范围限制在 waytoagi 的飞书站点内
-            search_url = f"https://www.google.com/search?q=site:waytoagi.feishu.cn+{title.replace(' ', '+')}"
+        for item in updates:
+            title = item.get('title', '无标题内容')
+            url = item.get('url', '#')
             
-            summary += f"🔹 **{title}**\n🔗 [搜索并直达文章]({search_url})\n\n"
-    
+            # 由于标题通常很长且包含了简介，我们直接展示，并做一个长度截断保护
+            display_text = title if len(title) <= 200 else title[:200] + "..."
+            
+            summary += f"🔹 {display_text}\n🔗 [查看原文]({url})\n\n"
+        
         return summary
     except Exception as e:
         return f"解析过程发生技术错误: {str(e)}"
