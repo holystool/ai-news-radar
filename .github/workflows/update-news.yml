@@ -60,25 +60,3 @@ jobs:
           echo "" >> $GITHUB_ENV # 换行确保结束标记在独立一行
           echo "TEMPEOS" >> $GITHUB_ENV
 
-      # --- 修改发送邮件步骤 ---
-      - name: Send Notification Email
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 587
-          secure: false
-          username: ${{ secrets.MAIL_USERNAME }}
-          password: ${{ secrets.MAIL_PASSWORD }}
-          subject: "✨ 您的 AI 灵感简报"
-          to: holystool@gmail.com
-          from: AI News Radar
-          body: |
-            早安！
-            
-            这是为您提取的 WaytoAGI 重点内容：
-            
-            ${{ env.EMAIL_SUMMARY }}
-            
-            ---
-            查看完整新闻网页（含更多板块）：
-            https://${{ github.repository_owner }}.github.io/ai-news-radar/
